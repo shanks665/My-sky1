@@ -1,0 +1,129 @@
+name: Pull Request チェック
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  lint:
+    name: コード品質チェック
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Node.jsセットアップ
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 依存関係インストール
+        run: npm ci --ignore-scripts
+      
+      - name: ESLintによる静的解析
+        run: npm run lint
+
+      - name: TypeScriptコンパイル確認
+        run: npm run tsc
+
+  test:
+    name: テスト実行
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v3
+
+      - name: Node.jsセットアップ
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 依存関係インストール
+        run: npm ci --ignore-scripts
+
+      - name: Jestによるテスト実行
+        run: npm test
+      
+      - name: テストカバレッジレポート
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  sonarcloud:
+    name: SonarCloudによる解析
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SONAR_TOKEN != '' }}
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  dependency-check:
+    name: 依存関係の脆弱性チェック
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v3
+
+      - name: Node.jsセットアップ
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 依存関係インストール
+        run: npm ci --ignore-scripts
+
+      - name: 依存関係の監査
+        run: npm audit --production
+        continue-on-error: true
+
+  comment-on-pr:
+    name: PRにコメントする
+    needs: [lint, test, sonarcloud, dependency-check]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: PRにコメント
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { lint, test, sonarcloud, "dependency-check": dependencyCheck } = context.payload.workflow_run.jobs;
+            
+            const jobStatus = {
+              lint: "${{ needs.lint.result }}",
+              test: "${{ needs.test.result }}",
+              sonarcloud: "${{ needs.sonarcloud.result }}",
+              dependencyCheck: "${{ needs['dependency-check'].result }}"
+            };
+            
+            let message = `## CI チェック結果\n\n`;
+            message += `| チェック | 結果 |\n`;
+            message += `| --- | --- |\n`;
+            message += `| コード品質 | ${jobStatus.lint === 'success' ? '✅' : '❌'} |\n`;
+            message += `| テスト | ${jobStatus.test === 'success' ? '✅' : '❌'} |\n`;
+            message += `| SonarCloud | ${jobStatus.sonarcloud === 'success' ? '✅' : '❌'} |\n`;
+            message += `| 依存関係 | ${jobStatus.dependencyCheck === 'success' ? '✅' : '❌'} |\n\n`;
+            
+            message += `詳細は [こちら](${context.payload.workflow_run.html_url}) をご確認ください。`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            }); 

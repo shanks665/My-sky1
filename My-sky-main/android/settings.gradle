@@ -1,0 +1,18 @@
+<<<<<<< HEAD
+rootProject.name = 'Meetify'
+include ':app'
+
+// React Native autolinking will handle most dependencies automatically
+// Only include manual linking if absolutely necessary
+=======
+pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+rootProject.name = 'Meetify'
+include ':app'
+includeBuild('../node_modules/@react-native/gradle-plugin')
+
+// react-native-background-fetchを明示的に追加
+include ':react-native-background-fetch'
+project(':react-native-background-fetch').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-background-fetch/android')
+>>>>>>> 357d4af7f6ed0fadfedca57e9d83f86e7e87ccd6
